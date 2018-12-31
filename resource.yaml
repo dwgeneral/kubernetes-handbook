@@ -12,6 +12,29 @@ spec:
     image: nginx
     ports:
     - containerPort: 80
+    volumeMounts:                    # 挂载Volume
+    - name: redis-persistent-storage # 挂载的数据卷名称
+      mountPath: /data/redis         # 挂载的数据卷在容器中的路径
+    resources:                       # kubernetes 通过 cgroups 提供容器资源管理的功能(限制容器的CPU，内存)
+      limits:                        # 资源限制
+        cpu: "500m"                  # 50%的CPU
+        memory: "128Mi"              # 128MB的内存
+    livenessProbe:                   # 探测应用是否处于健康状态，如果不健康则删除重建
+      httpGet:
+        path: /
+        port: 80
+        initialDelaySeconds: 15
+        timeoutSeconds: 1
+    readinessProbe:                  # 探测应用是否启动完成处于正常服务状态，如果不正常就不接收Kubernetes Service的流量
+      httpGet:
+        path: /
+        port: 80
+        initialDelaySeconds: 5
+        timeoutSeconds: 1
+  volumes:
+    - name: redis-persistent-storage
+      hostPath:
+        path: /data/                 # 挂载到宿主机的路径
 
 # ---- Service
 
@@ -27,3 +50,61 @@ spec:
     protocol: TCP
   selector:
     app: nginx
+
+# ---- Deployment
+
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  labels:
+    run: nginx-app
+  name: nginx-app
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      run: nginx-app
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        run: nginx-app
+    spec:
+      containers:
+      - image: nginx
+        name: nginx-app
+        ports:
+        - containerPort: 80
+          protocol: TCP
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+
+# --------- Ingress
+
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: cafe-ingress
+  spec:
+    tls:
+    - hosts:
+      - cafe.example.com
+      secretName: cafe-secret
+    rules:
+    - host: cafe.example.com
+      http:
+        paths:
+        - path: /tea
+          backend:
+            serviceName: tea-svc
+            servicePort: 80
+        - path: /coffee
+          backend:
+            serviceName: coffee-svc
+            servicePort: 80
+
